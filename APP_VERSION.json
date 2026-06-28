@@ -1,0 +1,8 @@
+{
+  "app": "MaridoBH Profissional",
+  "versionName": "1.0.0",
+  "versionCode": 100,
+  "channel": "android_profissional",
+  "server": "https://maridobh.com.br",
+  "status": "beta-ready"
+}

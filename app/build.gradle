@@ -1,0 +1,61 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+// O plugin do Google Services será aplicado automaticamente quando o arquivo
+// app/google-services.json existir. Isso evita erro de compilação antes de você
+// baixar o arquivo no Firebase.
+if (file('google-services.json').exists()) {
+    apply plugin: 'com.google.gms.google-services'
+} else {
+    logger.warn('Firebase: app/google-services.json ainda não encontrado. Baixe no Firebase e coloque em app/google-services.json para ativar o FCM.')
+}
+
+android {
+    namespace 'br.com.maridobh.profissional'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.maridobh.profissional'
+        minSdk 23
+        targetSdk 35
+        versionCode 100
+        versionName '1.0.0'
+
+        def serverUrl = project.findProperty('MBH_SERVER_URL') ?: 'https://maridobh.com.br'
+        def professionalPath = project.findProperty('MBH_PROFESSIONAL_PATH') ?: '/painel-profissional/'
+        def debugMode = project.findProperty('MBH_DEBUG_MODE') ?: 'true'
+
+        buildConfigField 'String', 'SERVER_URL', '"' + serverUrl + '"'
+        buildConfigField 'String', 'PROFESSIONAL_PATH', '"' + professionalPath + '"'
+        buildConfigField 'boolean', 'MBH_DEBUG_MODE', debugMode.toString()
+        buildConfigField 'String', 'MOBILE_DEVICE_ENDPOINT', '"/wp-json/mbh/v1/mobile/register-device"'
+        buildConfigField 'String', 'MOBILE_LOCATION_ENDPOINT', '"/wp-json/mbh/v1/mobile/location"'
+        buildConfigField 'String', 'MOBILE_WORK_SESSION_ENDPOINT', '"/wp-json/mbh/v1/mobile/work-session"'
+    }
+
+    buildFeatures { buildConfig true }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.13.1'
+
+    // Firebase BoM: controla automaticamente as versões das bibliotecas Firebase.
+    implementation platform('com.google.firebase:firebase-bom:34.15.0')
+
+    // Firebase Analytics recomendado pelo Firebase.
+    implementation 'com.google.firebase:firebase-analytics'
+
+    // Firebase Cloud Messaging para push nativo Android.
+    implementation 'com.google.firebase:firebase-messaging'
+}
