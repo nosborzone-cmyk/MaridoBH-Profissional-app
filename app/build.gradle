@@ -20,7 +20,7 @@ android {
         applicationId 'com.maridobh.profissional'
         minSdk 23
         targetSdk 35
-        versionCode 110
+        versionCode 283
         versionName '2.8.2'
 
         def serverUrl = project.findProperty('MBH_SERVER_URL') ?: 'https://maridobh.com.br'

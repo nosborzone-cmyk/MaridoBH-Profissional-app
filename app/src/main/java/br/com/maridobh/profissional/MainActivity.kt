@@ -569,13 +569,14 @@ class MainActivity : Activity() {
             scaleX = 0.94f
             scaleY = 0.94f
         }
-        box.addView(logo, LinearLayout.LayoutParams(dp(240), dp(240)))
+        box.addView(logo, LinearLayout.LayoutParams(dp(265), dp(265)))
         box.addView(TextView(this).apply {
-            text = "MaridoBH Profissional"
-            textSize = 15f
+            text = "MaridoBH\nPROFISSIONAL"
+            textSize = 28f
             setTextColor(Color.WHITE)
             alpha = 0.86f
             gravity = Gravity.CENTER
+            letterSpacing = 0.06f
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(8)
         })
@@ -585,6 +586,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             alpha = 0.65f
             gravity = Gravity.CENTER
+            letterSpacing = 0.06f
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(6)
         })
