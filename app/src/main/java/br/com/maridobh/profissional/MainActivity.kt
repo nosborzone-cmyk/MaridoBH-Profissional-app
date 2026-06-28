@@ -564,11 +564,12 @@ class MainActivity : Activity() {
             tag = "splash_logo"
             setImageResource(resources.getIdentifier("splash_logo", "drawable", packageName))
             adjustViewBounds = true
+            scaleType = ImageView.ScaleType.FIT_CENTER
             alpha = 0f
             scaleX = 0.94f
             scaleY = 0.94f
         }
-        box.addView(logo, LinearLayout.LayoutParams(dp(210), dp(210)))
+        box.addView(logo, LinearLayout.LayoutParams(dp(240), dp(240)))
         box.addView(TextView(this).apply {
             text = "MaridoBH Profissional"
             textSize = 15f
