@@ -1,5 +1,6 @@
 package br.com.maridobh.profissional.push
 
+import br.com.maridobh.profissional.AppConfig
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
@@ -15,7 +16,7 @@ class MBHFirebaseMessagingService : FirebaseMessagingService() {
         val data = message.data
         val title = message.notification?.title ?: data["title"] ?: "MaridoBH Profissional"
         val body = message.notification?.body ?: data["body"] ?: "Você tem uma nova atualização."
-        val deepLink = data["deep_link"] ?: data["deeplink"] ?: data["url"]
-        NotificationHelper.show(this, title, body, deepLink)
+        val deepLink = AppConfig.buildNotificationDeepLink(data)
+        NotificationHelper.show(this, title, body, deepLink, data)
     }
 }

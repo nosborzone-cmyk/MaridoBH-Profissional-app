@@ -33,11 +33,12 @@ object NotificationHelper {
         }
     }
 
-    fun show(context: Context, title: String, body: String, deepLink: String?) {
+    fun show(context: Context, title: String, body: String, deepLink: String?, data: Map<String, String> = emptyMap()) {
         ensureChannel(context)
         val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            if (!deepLink.isNullOrBlank()) data = Uri.parse(deepLink)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            if (!deepLink.isNullOrBlank()) setData(Uri.parse(deepLink))
+            data.forEach { (key, value) -> putExtra(key, value) }
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
@@ -47,7 +48,7 @@ object NotificationHelper {
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.splash_profissional)
+            .setSmallIcon(R.drawable.ic_stat_maridobh)
             .setContentTitle(title.ifBlank { "MaridoBH Profissional" })
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))

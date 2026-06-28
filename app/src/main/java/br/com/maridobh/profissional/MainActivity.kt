@@ -1,16 +1,20 @@
 package br.com.maridobh.profissional
 
 import android.Manifest
+import android.app.DownloadManager
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
+import android.os.Environment
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -18,6 +22,7 @@ import android.view.ViewGroup
 import android.webkit.GeolocationPermissions
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.URLUtil
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -30,14 +35,23 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.FileProvider
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import br.com.maridobh.profissional.diagnostics.AppDiagnostics
 import br.com.maridobh.profissional.location.PreciseLocationManager
 import br.com.maridobh.profissional.mobile.MobileApiClient
 import br.com.maridobh.profissional.push.PushTokenManager
 import br.com.maridobh.profissional.sync.OfflineQueueManager
 import br.com.maridobh.profissional.work.WorkSessionManager
+import kotlin.math.max
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
@@ -45,9 +59,12 @@ class MainActivity : Activity() {
     private lateinit var errorView: LinearLayout
     private lateinit var statusPill: TextView
     private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private var cameraImageUri: Uri? = null
     private var pendingGeoCallback: GeolocationPermissions.Callback? = null
     private var pendingGeoOrigin: String? = null
     private var pendingStartPreciseLocation = false
+    private var safeTopPx = 0
+    private var safeBottomPx = 0
 
     companion object {
         private const val REQ_FILE = 701
@@ -58,8 +75,12 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.parseColor("#071A33")
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.WHITE
         window.navigationBarColor = Color.parseColor("#071A33")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        }
         buildLayout()
         configureWebView()
         requestNotificationPermissionIfNeeded()
@@ -75,11 +96,13 @@ class MainActivity : Activity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         loadInitialUrl(intent)
     }
 
     private fun buildLayout() {
         val root = FrameLayout(this)
+        applySafeArea(root)
 
         webView = WebView(this)
         root.addView(webView, FrameLayout.LayoutParams(-1, -1))
@@ -97,7 +120,7 @@ class MainActivity : Activity() {
             setOnClickListener { showMobileDiagnostics() }
         }
         val pillParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply {
-            topMargin = dp(12)
+            topMargin = dp(8)
             rightMargin = dp(12)
         }
         root.addView(statusPill, pillParams)
@@ -190,16 +213,37 @@ class MainActivity : Activity() {
             ): Boolean {
                 fileCallback?.onReceiveValue(null)
                 fileCallback = filePathCallback
-                val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+
+                val acceptTypes = fileChooserParams?.acceptTypes?.filter { it.isNotBlank() }.orEmpty()
+                val wantsImage = acceptTypes.isEmpty() || acceptTypes.any { it.contains("image", ignoreCase = true) || it == "*/*" }
+
+                val contentIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "image/*"
-                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                    type = when {
+                        acceptTypes.size == 1 -> acceptTypes.first()
+                        wantsImage -> "image/*"
+                        else -> "*/*"
+                    }
+                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, fileChooserParams?.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE)
                 }
+
+                val intents = mutableListOf<Intent>()
+                if (wantsImage) {
+                    createCameraIntent()?.let { intents.add(it) }
+                }
+
+                val chooser = Intent(Intent.ACTION_CHOOSER).apply {
+                    putExtra(Intent.EXTRA_INTENT, contentIntent)
+                    putExtra(Intent.EXTRA_TITLE, "Selecionar arquivo")
+                    if (intents.isNotEmpty()) putExtra(Intent.EXTRA_INITIAL_INTENTS, intents.toTypedArray())
+                }
+
                 return try {
-                    startActivityForResult(intent, REQ_FILE)
+                    startActivityForResult(chooser, REQ_FILE)
                     true
                 } catch (e: ActivityNotFoundException) {
                     fileCallback = null
+                    cameraImageUri = null
                     false
                 }
             }
@@ -212,6 +256,24 @@ class MainActivity : Activity() {
                     pendingGeoCallback = callback
                     ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQ_LOCATION)
                 }
+            }
+        }
+
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            try {
+                val request = DownloadManager.Request(Uri.parse(url)).apply {
+                    setMimeType(mimeType)
+                    addRequestHeader("User-Agent", userAgent)
+                    setTitle(URLUtil.guessFileName(url, contentDisposition, mimeType))
+                    setDescription("Baixando arquivo do MaridoBH")
+                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, URLUtil.guessFileName(url, contentDisposition, mimeType))
+                }
+                val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                dm.enqueue(request)
+                Toast.makeText(this, "Download iniciado", Toast.LENGTH_SHORT).show()
+            } catch (_: Exception) {
+                openExternal(url)
             }
         }
     }
@@ -251,19 +313,55 @@ class MainActivity : Activity() {
     }
 
     private fun loadInitialUrl(intent: Intent?) {
-        val url = AppConfig.deepLinkToUrl(intent?.data)
+        val url = AppConfig.notificationIntentToUrl(intent)
         webView.loadUrl(url)
     }
 
     private fun handleExternalUrl(url: String): Boolean {
         if (url.startsWith(AppConfig.baseUrl) || url.startsWith("about:")) return false
-        if (url.startsWith("tel:") || url.startsWith("mailto:") || url.startsWith("whatsapp:") || url.startsWith("https://wa.me")) {
-            return try {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                true
-            } catch (_: Exception) { true }
+
+        val lower = url.lowercase(Locale.ROOT)
+        val isRoute = lower.startsWith("geo:") ||
+            lower.startsWith("google.navigation:") ||
+            lower.startsWith("waze:") ||
+            lower.contains("maps.google.") ||
+            lower.contains("google.com/maps") ||
+            lower.contains("/maps/dir")
+
+        if (isRoute ||
+            lower.startsWith("tel:") ||
+            lower.startsWith("mailto:") ||
+            lower.startsWith("whatsapp:") ||
+            lower.startsWith("https://wa.me") ||
+            lower.startsWith("intent:")) {
+            openExternal(url)
+            return true
         }
+
+        // Links HTTP fora do domínio do MaridoBH devem abrir fora do WebView.
+        if (lower.startsWith("http://") || lower.startsWith("https://")) {
+            openExternal(url)
+            return true
+        }
+
         return false
+    }
+
+    private fun openExternal(url: String) {
+        try {
+            val intent = if (url.startsWith("intent:")) {
+                Intent.parseUri(url, Intent.URI_INTENT_SCHEME)
+            } else {
+                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            } catch (_: Exception) {
+                Toast.makeText(this, "Não foi possível abrir este link", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun injectMobileBridgeFlag() {
@@ -281,7 +379,38 @@ class MainActivity : Activity() {
             window.MBH_APP.version = '${BuildConfig.VERSION_NAME}';
             window.MBH_APP.channel = '${AppConfig.APP_CHANNEL}';
             document.documentElement.classList.add('mbh-android-app');
+            document.body && document.body.classList.add('mbh-android-app');
             (function(){
+                try {
+                    var safeTop = ${safeTopPx};
+                    var safeBottom = ${safeBottomPx};
+                    var style = document.getElementById('mbh-android-safe-area-style');
+                    if (!style) {
+                        style = document.createElement('style');
+                        style.id = 'mbh-android-safe-area-style';
+                        document.head.appendChild(style);
+                    }
+                    style.textContent = ':root{--mbh-safe-top:'+safeTop+'px;--mbh-safe-bottom:'+safeBottom+'px;}' +
+                        'html.mbh-android-app,body.mbh-android-app{min-height:100%;}' +
+                        'body.mbh-android-app{padding-bottom:calc(var(--mbh-safe-bottom) + 10px)!important;}' +
+                        '.mbh-android-app input:focus,.mbh-android-app textarea:focus{scroll-margin-bottom:calc(var(--mbh-safe-bottom) + 150px)!important;}' +
+                        '.mbh-chat-composer,.mbh-chat-inputbar,.mbh-chat-input-bar,.mbh-chat-footer,.mbh-chat-form,.mbh-atendimento-composer,.mbh-atendimento-footer,.mbh-central-chat-footer,[data-mbh-chat-composer]{padding-bottom:calc(var(--mbh-safe-bottom) + 8px)!important;bottom:0!important;}' +
+                        '.mbh-chat-modal,.mbh-atendimento-modal,.mbh-central-atendimento-modal{max-height:calc(100vh - var(--mbh-safe-top) - var(--mbh-safe-bottom))!important;}';
+                    if (!window.__mbhAndroidFocusFix) {
+                        window.__mbhAndroidFocusFix = true;
+                        document.addEventListener('focusin', function(ev){
+                            var el = ev.target;
+                            if (!el) return;
+                            var tag = (el.tagName || '').toLowerCase();
+                            if (tag === 'input' || tag === 'textarea' || el.isContentEditable) {
+                                setTimeout(function(){
+                                    try { el.scrollIntoView({block:'center', inline:'nearest', behavior:'smooth'}); } catch(e) { try { el.scrollIntoView(false); } catch(_){} }
+                                }, 320);
+                            }
+                        }, true);
+                    }
+                } catch(e) { console.log('MBH safe-area css error', e); }
+
                 try {
                     var state = JSON.parse('$payload');
                     window.MBH_APP.device = state.device;
@@ -325,9 +454,19 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQ_FILE) {
-            val result = WebChromeClient.FileChooserParams.parseResult(resultCode, data)
+            val result = when {
+                resultCode != RESULT_OK -> null
+                data?.clipData != null -> {
+                    val clip = data.clipData!!
+                    Array(clip.itemCount) { i -> clip.getItemAt(i).uri }
+                }
+                data?.data != null -> arrayOf(data.data!!)
+                cameraImageUri != null -> arrayOf(cameraImageUri!!)
+                else -> null
+            }
             fileCallback?.onReceiveValue(result)
             fileCallback = null
+            cameraImageUri = null
         }
     }
 
@@ -401,6 +540,21 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun createCameraIntent(): Intent? {
+        return try {
+            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(Date())
+            val imageFile = File.createTempFile("MBH_${timeStamp}_", ".jpg", cacheDir)
+            cameraImageUri = FileProvider.getUriForFile(this, "$packageName.fileprovider", imageFile)
+            Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                putExtra(MediaStore.EXTRA_OUTPUT, cameraImageUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            }
+        } catch (_: Exception) {
+            cameraImageUri = null
+            null
+        }
+    }
+
     private fun openAppSettings() {
         try {
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -408,6 +562,76 @@ class MainActivity : Activity() {
             }
             startActivity(intent)
         } catch (_: Exception) {}
+    }
+
+    private fun applySafeArea(root: View) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+                val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+                val newBottom = max(systemBars.bottom, ime.bottom)
+                safeTopPx = systemBars.top
+                safeBottomPx = newBottom
+                view.setPadding(systemBars.left, systemBars.top, systemBars.right, newBottom)
+                if (::webView.isInitialized) {
+                    injectSafeAreaOnly()
+                }
+                insets
+            }
+            ViewCompat.requestApplyInsets(root)
+        } else {
+            safeTopPx = getStatusBarHeight()
+            safeBottomPx = getNavigationBarHeight()
+            root.setPadding(0, safeTopPx, 0, safeBottomPx)
+        }
+    }
+
+    private fun injectSafeAreaOnly() {
+        if (!::webView.isInitialized) return
+        val js = """
+            (function(){
+                try {
+                    var safeTop = ${safeTopPx};
+                    var safeBottom = ${safeBottomPx};
+                    var style = document.getElementById('mbh-android-safe-area-style');
+                    if (!style) {
+                        style = document.createElement('style');
+                        style.id = 'mbh-android-safe-area-style';
+                        document.head.appendChild(style);
+                    }
+                    style.textContent = ':root{--mbh-safe-top:'+safeTop+'px;--mbh-safe-bottom:'+safeBottom+'px;}' +
+                        'html.mbh-android-app,body.mbh-android-app{min-height:100%;}' +
+                        'body.mbh-android-app{padding-bottom:calc(var(--mbh-safe-bottom) + 10px)!important;}' +
+                        '.mbh-android-app input:focus,.mbh-android-app textarea:focus{scroll-margin-bottom:calc(var(--mbh-safe-bottom) + 150px)!important;}' +
+                        '.mbh-chat-composer,.mbh-chat-inputbar,.mbh-chat-input-bar,.mbh-chat-footer,.mbh-chat-form,.mbh-atendimento-composer,.mbh-atendimento-footer,.mbh-central-chat-footer,[data-mbh-chat-composer]{padding-bottom:calc(var(--mbh-safe-bottom) + 8px)!important;bottom:0!important;}' +
+                        '.mbh-chat-modal,.mbh-atendimento-modal,.mbh-central-atendimento-modal{max-height:calc(100vh - var(--mbh-safe-top) - var(--mbh-safe-bottom))!important;}';
+                    if (!window.__mbhAndroidFocusFix) {
+                        window.__mbhAndroidFocusFix = true;
+                        document.addEventListener('focusin', function(ev){
+                            var el = ev.target;
+                            if (!el) return;
+                            var tag = (el.tagName || '').toLowerCase();
+                            if (tag === 'input' || tag === 'textarea' || el.isContentEditable) {
+                                setTimeout(function(){
+                                    try { el.scrollIntoView({block:'center', inline:'nearest', behavior:'smooth'}); } catch(e) { try { el.scrollIntoView(false); } catch(_){} }
+                                }, 320);
+                            }
+                        }, true);
+                    }
+                } catch(e) {}
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(js, null)
+    }
+
+    private fun getStatusBarHeight(): Int {
+        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
+    }
+
+    private fun getNavigationBarHeight(): Int {
+        val resourceId = resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        return if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
