@@ -113,18 +113,22 @@ class MainActivity : Activity() {
         root.addView(progress, FrameLayout.LayoutParams(-1, dp(4), Gravity.TOP))
 
         statusPill = TextView(this).apply {
-            textSize = 12f
+            textSize = 13f
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            alpha = 0.96f
-            elevation = dp(8).toFloat()
-            setOnClickListener { showMobileDiagnostics() }
+            setPadding(dp(14), dp(10), dp(16), dp(10))
+            alpha = 0.97f
+            elevation = dp(10).toFloat()
+            maxWidth = dp(330)
+            setLineSpacing(dp(2).toFloat(), 1.0f)
+            setOnClickListener { updateLocationNow() }
+            setOnLongClickListener { showMobileDiagnostics(); true }
         }
-        // O indicador do app fica no canto inferior esquerdo para não cobrir
-        // o menu hambúrguer do WordPress, nem botões do cabeçalho.
+        // Card nativo de atualização manual da localização. Fica na parte inferior
+        // esquerda para não cobrir o menu hambúrguer nem botões do cabeçalho.
         val pillParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply {
             leftMargin = dp(14)
-            bottomMargin = dp(16)
+            bottomMargin = dp(18)
+            rightMargin = dp(14)
         }
         root.addView(statusPill, pillParams)
 
@@ -285,6 +289,19 @@ class MainActivity : Activity() {
                 openExternal(url)
             }
         }
+    }
+
+    private fun updateLocationNow() {
+        if (!PreciseLocationManager.hasPermission(this)) {
+            pendingStartPreciseLocation = true
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQ_PRECISE_LOCATION)
+            return
+        }
+        val ok = PreciseLocationManager.start(this)
+        MobileApiClient.flushPending(this)
+        Toast.makeText(this, if (ok) "Localização atualizada" else "Não foi possível atualizar a localização", Toast.LENGTH_SHORT).show()
+        updateStatusPill()
+        injectMobileBridgeFlag()
     }
 
     fun requestPreciseLocationFromBridge() {
@@ -513,23 +530,20 @@ class MainActivity : Activity() {
     }
 
     private fun updateStatusPill() {
-        val jornada = WorkSessionManager.isActive(this)
         val precise = PreciseLocationManager.isActive(this)
         val pending = OfflineQueueManager.pendingCount(this)
         val overall = AppDiagnostics.diagnosticsJson(this).optString("overall", "ok")
         statusPill.text = when {
-            pending > 0 -> "🟡 Sincronizar $pending"
-            overall == "critical" -> "🔴 Diagnóstico"
-            jornada && precise -> "🟢 Jornada • GPS preciso"
-            precise -> "📍 GPS preciso"
-            jornada -> "🟡 Jornada • GPS aproximado"
-            else -> "📡 Radar aproximado"
+            overall == "critical" -> "⚠️  Verificar aplicativo\nToque para tentar sincronizar"
+            pending > 0 -> "🔄  Atualizar localização\n$pending pendência(s) offline"
+            precise -> "📍  Atualizar localização\nGPS preciso ativo • toque para sincronizar"
+            else -> "🎯  Atualizar localização\nSincronize sua posição para serviços próximos"
         }
         val color = when {
             overall == "critical" -> "#DC2626"
-            pending > 0 || jornada && !precise -> "#F59E0B"
-            precise || jornada -> "#16A34A"
-            else -> "#2563EB"
+            pending > 0 -> "#F59E0B"
+            precise -> "#0B84FF"
+            else -> "#0B4EDB"
         }
         applyRoundedPillBackground(statusPill, color)
     }
@@ -551,7 +565,8 @@ class MainActivity : Activity() {
             .setTitle("Diagnóstico do aplicativo")
             .setMessage(message)
             .setPositiveButton("OK", null)
-            .setNegativeButton("SINCRONIZAR") { _, _ ->
+            .setNegativeButton("ATUALIZAR LOCALIZAÇÃO") { _, _ ->
+                updateLocationNow()
                 MobileApiClient.flushPending(this) { sent ->
                     runOnUiThread {
                         Toast.makeText(this, "Sincronização enviada: $sent item(ns)", Toast.LENGTH_SHORT).show()

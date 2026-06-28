@@ -4,6 +4,7 @@
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:statusBarColor">@color/mbh_white</item>
         <item name="android:navigationBarColor">@color/mbh_blue_dark</item>
+        <item name="android:windowBackground">@drawable/splash_background</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
 </resources>

@@ -1,1 +1,6 @@
-{"version":"2.6.0","versionCode":106,"name":"MaridoBH Profissional Android"}
+{
+  "versionName": "2.7.0",
+  "versionCode": 107,
+  "channel": "debug",
+  "notes": "Atualiza botão de localização, ícone e splash azul centralizado."
+}
