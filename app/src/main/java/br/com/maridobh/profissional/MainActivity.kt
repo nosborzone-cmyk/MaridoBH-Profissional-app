@@ -660,6 +660,20 @@ class MainActivity : Activity() {
             .show()
     }
 
+
+    private fun openAppUpdatePage() {
+        val updateUrl = AppConfig.baseUrl + "/app-profissional/"
+        try {
+            openExternal(updateUrl)
+        } catch (_: Exception) {
+            try {
+                openExternal(AppConfig.baseUrl)
+            } catch (_: Exception) {
+                Toast.makeText(this, "Não foi possível abrir a página de atualização", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFICATION)
