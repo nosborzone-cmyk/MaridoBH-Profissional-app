@@ -1,0 +1,24 @@
+# Android / Gradle
+.gradle/
+build/
+**/build/
+local.properties
+*.iml
+.idea/
+
+# APK/AAB generated files
+*.apk
+*.aab
+*.ap_
+
+# Signing keys - nunca subir no GitHub
+*.jks
+*.keystore
+keystore.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
