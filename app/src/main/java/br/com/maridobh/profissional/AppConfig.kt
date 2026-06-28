@@ -42,44 +42,45 @@ object AppConfig {
         intent.data?.let { return deepLinkToUrl(it) }
 
         val extras = intent.extras ?: return painelProfissionalUrl
-        val direct = listOf("deep_link", "deeplink", "url", "link", "target_url")
-            .firstNotNullOfOrNull { key -> extras.getString(key)?.takeIf { it.isNotBlank() } }
-        if (!direct.isNullOrBlank()) return deepLinkToUrl(Uri.parse(direct))
-
-        val pedidoId = extras.getString("pedido_id") ?: extras.getString("order_id") ?: extras.getString("id_pedido")
-        val chatId = extras.getString("chat_id")
-        val chamadoId = extras.getString("chamado_id") ?: extras.getString("ticket_id")
-        val screen = (extras.getString("screen") ?: extras.getString("type") ?: "").lowercase()
-
-        return when {
-            !chatId.isNullOrBlank() -> "$baseUrl/meus-servicos/?mbh_chat=$chatId"
-            !chamadoId.isNullOrBlank() -> "$baseUrl/suporte/?mbh_chamado=$chamadoId"
-            !pedidoId.isNullOrBlank() && (screen.contains("chat") || screen.contains("mensagem")) -> "$baseUrl/meus-servicos/?mbh_chat=$pedidoId"
-            !pedidoId.isNullOrBlank() -> "$baseUrl/meus-servicos/?mbh_pedido=$pedidoId"
-            screen.contains("oportun") -> "$baseUrl/oportunidades/"
-            screen.contains("perfil") -> "$baseUrl/meu-perfil/"
-            screen.contains("suporte") || screen.contains("chamado") -> "$baseUrl/suporte/"
-            else -> painelProfissionalUrl
+        val map = mutableMapOf<String, String>()
+        for (key in extras.keySet()) {
+            val value = extras.get(key)
+            if (value != null) map[key] = value.toString()
         }
+        buildNotificationDeepLink(map)?.let { return deepLinkToUrl(Uri.parse(it)) }
+        return painelProfissionalUrl
     }
 
     fun buildNotificationDeepLink(data: Map<String, String>): String? {
-        val direct = data["deep_link"] ?: data["deeplink"] ?: data["url"] ?: data["link"] ?: data["target_url"]
+        fun first(vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
+            data[key]?.takeIf { it.isNotBlank() }
+        }
+
+        val direct = first("deep_link", "deeplink", "url", "link", "target_url", "click_action", "open_url")
         if (!direct.isNullOrBlank()) return direct
 
-        val pedidoId = data["pedido_id"] ?: data["order_id"] ?: data["id_pedido"]
-        val chatId = data["chat_id"]
-        val chamadoId = data["chamado_id"] ?: data["ticket_id"]
-        val screen = (data["screen"] ?: data["type"] ?: "").lowercase()
+        val pedidoId = first(
+            "pedido_id", "order_id", "id_pedido", "servico_id", "service_id",
+            "atendimento_id", "mbh_pedido", "mbh_pedido_id", "post_id"
+        )
+        val chatId = first("chat_id", "conversation_id", "mensagem_pedido_id")
+        val chamadoId = first("chamado_id", "ticket_id", "suporte_id", "case_id")
+        val screen = (first("screen", "type", "event", "action", "notification_type", "target") ?: "").lowercase()
+        val entityType = (first("entity", "entity_type", "resource", "resource_type") ?: "").lowercase()
+        val entityId = first("entity_id", "resource_id")
 
         return when {
             !chatId.isNullOrBlank() -> "maridobh://chat/$chatId"
             !chamadoId.isNullOrBlank() -> "maridobh://chamado/$chamadoId"
-            !pedidoId.isNullOrBlank() && (screen.contains("chat") || screen.contains("mensagem")) -> "maridobh://chat/$pedidoId"
+            entityType.contains("chamado") && !entityId.isNullOrBlank() -> "maridobh://chamado/$entityId"
+            (entityType.contains("pedido") || entityType.contains("servico") || entityType.contains("atendimento")) && !entityId.isNullOrBlank() -> "maridobh://pedido/$entityId"
+            !pedidoId.isNullOrBlank() && (screen.contains("chat") || screen.contains("mensagem") || screen.contains("conversa")) -> "maridobh://chat/$pedidoId"
             !pedidoId.isNullOrBlank() -> "maridobh://pedido/$pedidoId"
             screen.contains("oportun") -> "maridobh://oportunidades"
             screen.contains("perfil") -> "maridobh://perfil"
+            screen.contains("suporte") || screen.contains("chamado") -> "maridobh://chamado/${entityId.orEmpty()}".takeIf { !entityId.isNullOrBlank() } ?: "maridobh://suporte"
             else -> null
         }
     }
+
 }

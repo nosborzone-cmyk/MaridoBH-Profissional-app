@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Environment
 import android.os.Build
@@ -114,14 +115,16 @@ class MainActivity : Activity() {
         statusPill = TextView(this).apply {
             textSize = 12f
             setTextColor(Color.WHITE)
-            setPadding(dp(12), dp(7), dp(12), dp(7))
-            setBackgroundColor(Color.parseColor("#2563EB"))
-            alpha = 0.94f
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            alpha = 0.96f
+            elevation = dp(8).toFloat()
             setOnClickListener { showMobileDiagnostics() }
         }
-        val pillParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply {
-            topMargin = dp(8)
-            rightMargin = dp(12)
+        // O indicador do app fica no canto inferior esquerdo para não cobrir
+        // o menu hambúrguer do WordPress, nem botões do cabeçalho.
+        val pillParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply {
+            leftMargin = dp(14)
+            bottomMargin = dp(16)
         }
         root.addView(statusPill, pillParams)
 
@@ -251,9 +254,15 @@ class MainActivity : Activity() {
             override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
                 if (PreciseLocationManager.hasPermission(this@MainActivity)) {
                     callback?.invoke(origin, true, false)
+                    // Quando o próprio painel usa navigator.geolocation para a localização precisa,
+                    // sincronizamos também o estado nativo do app.
+                    PreciseLocationManager.start(this@MainActivity)
+                    updateStatusPill()
+                    injectMobileBridgeFlag()
                 } else {
                     pendingGeoOrigin = origin
                     pendingGeoCallback = callback
+                    pendingStartPreciseLocation = true
                     ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQ_LOCATION)
                 }
             }
@@ -475,8 +484,14 @@ class MainActivity : Activity() {
         if (requestCode == REQ_LOCATION) {
             val granted = grantResults.isNotEmpty() && grantResults.any { it == PackageManager.PERMISSION_GRANTED }
             pendingGeoCallback?.invoke(pendingGeoOrigin, granted, false)
+            if (granted && pendingStartPreciseLocation) {
+                PreciseLocationManager.start(this)
+            }
+            pendingStartPreciseLocation = false
             pendingGeoCallback = null
             pendingGeoOrigin = null
+            updateStatusPill()
+            injectMobileBridgeFlag()
         }
         if (requestCode == REQ_PRECISE_LOCATION) {
             val granted = grantResults.isNotEmpty() && grantResults.any { it == PackageManager.PERMISSION_GRANTED }
@@ -516,7 +531,16 @@ class MainActivity : Activity() {
             precise || jornada -> "#16A34A"
             else -> "#2563EB"
         }
-        statusPill.setBackgroundColor(Color.parseColor(color))
+        applyRoundedPillBackground(statusPill, color)
+    }
+
+    private fun applyRoundedPillBackground(view: TextView, color: String) {
+        val bg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(22).toFloat()
+            setColor(Color.parseColor(color))
+        }
+        view.background = bg
     }
 
     private fun showMobileDiagnostics() {
@@ -527,7 +551,7 @@ class MainActivity : Activity() {
             .setTitle("Diagnóstico do aplicativo")
             .setMessage(message)
             .setPositiveButton("OK", null)
-            .setNegativeButton("Sincronizar agora") { _, _ ->
+            .setNegativeButton("SINCRONIZAR") { _, _ ->
                 MobileApiClient.flushPending(this) { sent ->
                     runOnUiThread {
                         Toast.makeText(this, "Sincronização enviada: $sent item(ns)", Toast.LENGTH_SHORT).show()
@@ -536,7 +560,7 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            .setNeutralButton("Configurações") { _, _ -> openAppSettings() }
+            .setNeutralButton("CONFIGURAÇÕES") { _, _ -> openAppSettings() }
             .show()
     }
 

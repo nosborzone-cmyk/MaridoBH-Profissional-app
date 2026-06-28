@@ -37,6 +37,7 @@ object NotificationHelper {
         ensureChannel(context)
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("mbh_from_push", true)
             if (!deepLink.isNullOrBlank()) setData(Uri.parse(deepLink))
             data.forEach { (key, value) -> putExtra(key, value) }
         }
