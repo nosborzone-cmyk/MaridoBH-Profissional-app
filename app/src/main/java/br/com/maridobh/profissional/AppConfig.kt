@@ -19,6 +19,7 @@ object AppConfig {
 
         // Links internos HTTPS vindos de notificações ou do próprio WordPress.
         if (raw.startsWith(baseUrl)) return raw
+        if (raw.startsWith(baseUrl.replace("https://", "https://www."))) return raw
 
         // Deep links nativos do app.
         if (uri.scheme == "maridobh") {
@@ -26,10 +27,14 @@ object AppConfig {
             val id = uri.pathSegments.firstOrNull().orEmpty()
             return when (host) {
                 "pedido" -> "$baseUrl/meus-servicos/?mbh_pedido=$id"
+                "pedido-cliente" -> "$baseUrl/meus-pedidos/?mbh_pedido=$id"
+                "oportunidade" -> "$baseUrl/oportunidades/?pedido_id=$id"
                 "chat" -> "$baseUrl/meus-servicos/?mbh_chat=$id"
                 "chamado" -> "$baseUrl/suporte/?mbh_chamado=$id"
+                "suporte" -> "$baseUrl/suporte/"
                 "oportunidades" -> "$baseUrl/oportunidades/"
                 "perfil" -> "$baseUrl/meu-perfil/"
+                "plano" -> "$baseUrl/meu-plano/"
                 else -> painelProfissionalUrl
             }
         }
@@ -56,8 +61,8 @@ object AppConfig {
             data[key]?.takeIf { it.isNotBlank() }
         }
 
-        val direct = first("deep_link", "deeplink", "url", "link", "target_url", "click_action", "open_url")
-        if (!direct.isNullOrBlank()) return direct
+        val direct = first("deep_link", "deeplink", "url", "link", "target_url", "open_url")
+        if (!direct.isNullOrBlank() && direct != "OPEN_MARIDOBH") return direct
 
         val pedidoId = first(
             "pedido_id", "order_id", "id_pedido", "servico_id", "service_id",
@@ -69,11 +74,15 @@ object AppConfig {
         val entityType = (first("entity", "entity_type", "resource", "resource_type") ?: "").lowercase()
         val entityId = first("entity_id", "resource_id")
 
+        val tipo = (first("tipo", "notification_type", "type") ?: "").lowercase()
+
         return when {
             !chatId.isNullOrBlank() -> "maridobh://chat/$chatId"
             !chamadoId.isNullOrBlank() -> "maridobh://chamado/$chamadoId"
             entityType.contains("chamado") && !entityId.isNullOrBlank() -> "maridobh://chamado/$entityId"
             (entityType.contains("pedido") || entityType.contains("servico") || entityType.contains("atendimento")) && !entityId.isNullOrBlank() -> "maridobh://pedido/$entityId"
+            !pedidoId.isNullOrBlank() && (screen.contains("oportun") || tipo.contains("nova_oportunidade") || tipo.contains("chamariz")) -> "maridobh://oportunidade/$pedidoId"
+            !pedidoId.isNullOrBlank() && (screen.contains("cliente") || screen.contains("meus_pedidos")) -> "maridobh://pedido-cliente/$pedidoId"
             !pedidoId.isNullOrBlank() && (screen.contains("chat") || screen.contains("mensagem") || screen.contains("conversa")) -> "maridobh://chat/$pedidoId"
             !pedidoId.isNullOrBlank() -> "maridobh://pedido/$pedidoId"
             screen.contains("oportun") -> "maridobh://oportunidades"

@@ -54,6 +54,11 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="maridobh" />
             </intent-filter>
+
+            <intent-filter>
+                <action android:name="OPEN_MARIDOBH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>
