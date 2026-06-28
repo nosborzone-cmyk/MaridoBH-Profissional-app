@@ -47,7 +47,12 @@ class MaridoBHBridge(private val context: Context) {
 
     @JavascriptInterface
     fun syncPending() {
-        MobileApiClient.flushPending(context)
+        (context as? MainActivity)?.performSmartSyncFromBridge() ?: MobileApiClient.flushPending(context)
+    }
+
+    @JavascriptInterface
+    fun smartSync() {
+        (context as? MainActivity)?.performSmartSyncFromBridge() ?: MobileApiClient.flushPending(context)
     }
 
     @JavascriptInterface

@@ -11,10 +11,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Environment
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.provider.Settings
 import android.view.Gravity
@@ -53,12 +57,18 @@ import br.com.maridobh.profissional.push.PushTokenManager
 import br.com.maridobh.profissional.sync.OfflineQueueManager
 import br.com.maridobh.profissional.work.WorkSessionManager
 import kotlin.math.max
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
     private lateinit var progress: ProgressBar
     private lateinit var errorView: LinearLayout
     private lateinit var statusPill: TextView
+    private lateinit var splashOverlay: FrameLayout
+    private var splashHidden = false
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var updatePromptShown = false
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var cameraImageUri: Uri? = null
     private var pendingGeoCallback: GeolocationPermissions.Callback? = null
@@ -92,6 +102,7 @@ class MainActivity : Activity() {
             PreciseLocationManager.start(this)
         }
         updateStatusPill()
+        checkForAppUpdate()
         loadInitialUrl(intent)
     }
 
@@ -105,11 +116,15 @@ class MainActivity : Activity() {
         val root = FrameLayout(this)
         applySafeArea(root)
 
-        webView = WebView(this)
+        webView = WebView(this).apply {
+            alpha = 0f
+            setBackgroundColor(Color.parseColor("#0B4EDB"))
+        }
         root.addView(webView, FrameLayout.LayoutParams(-1, -1))
 
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
         progress.max = 100
+        progress.visibility = View.GONE
         root.addView(progress, FrameLayout.LayoutParams(-1, dp(4), Gravity.TOP))
 
         statusPill = TextView(this).apply {
@@ -135,7 +150,7 @@ class MainActivity : Activity() {
         errorView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
             visibility = View.GONE
             setPadding(dp(24), dp(24), dp(24), dp(24))
 
@@ -146,14 +161,14 @@ class MainActivity : Activity() {
             addView(icon, LinearLayout.LayoutParams(dp(52), dp(52)))
 
             addView(TextView(this@MainActivity).apply {
-                text = "Não foi possível carregar o MaridoBH"
+                text = "Você está offline"
                 textSize = 20f
                 setTextColor(Color.parseColor("#071A33"))
                 gravity = Gravity.CENTER
                 setPadding(0, dp(18), 0, dp(8))
             })
             addView(TextView(this@MainActivity).apply {
-                text = "Verifique sua internet e tente novamente."
+                text = "O aplicativo vai tentar reconectar automaticamente. Você também pode tocar abaixo para atualizar."
                 textSize = 15f
                 setTextColor(Color.parseColor("#667085"))
                 gravity = Gravity.CENTER
@@ -162,6 +177,7 @@ class MainActivity : Activity() {
                 text = "Tentar novamente"
                 setOnClickListener {
                     errorView.visibility = View.GONE
+                    performSmartSync(clearWebCache = false, showToast = false)
                     webView.reload()
                 }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -169,6 +185,13 @@ class MainActivity : Activity() {
             })
         }
         root.addView(errorView, FrameLayout.LayoutParams(-1, -1))
+
+        splashOverlay = buildSplashOverlay()
+        root.addView(splashOverlay, FrameLayout.LayoutParams(-1, -1))
+        splashOverlay.post {
+            splashOverlay.findViewWithTag<ImageView>("splash_logo")?.animate()?.alpha(1f)?.scaleX(1f)?.scaleY(1f)?.setDuration(450)?.start()
+        }
+
         setContentView(root)
     }
 
@@ -201,10 +224,14 @@ class MainActivity : Activity() {
                 progress.visibility = View.GONE
                 injectMobileBridgeFlag()
                 updateStatusPill()
+                hideSplashWhenReady()
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame) errorView.visibility = View.VISIBLE
+                if (request.isForMainFrame) {
+                    hideSplash(force = true)
+                    errorView.visibility = View.VISIBLE
+                }
             }
         }
         webView.webChromeClient = object : WebChromeClient() {
@@ -298,8 +325,8 @@ class MainActivity : Activity() {
             return
         }
         val ok = PreciseLocationManager.start(this)
-        MobileApiClient.flushPending(this)
-        Toast.makeText(this, if (ok) "Localização atualizada" else "Não foi possível atualizar a localização", Toast.LENGTH_SHORT).show()
+        performSmartSync(clearWebCache = true, showToast = false)
+        Toast.makeText(this, if (ok) "Localização e app sincronizados" else "Não foi possível atualizar a localização", Toast.LENGTH_SHORT).show()
         updateStatusPill()
         injectMobileBridgeFlag()
     }
@@ -421,7 +448,8 @@ class MainActivity : Activity() {
                         'body.mbh-android-app{padding-bottom:calc(var(--mbh-safe-bottom) + 10px)!important;}' +
                         '.mbh-android-app input:focus,.mbh-android-app textarea:focus{scroll-margin-bottom:calc(var(--mbh-safe-bottom) + 150px)!important;}' +
                         '.mbh-chat-composer,.mbh-chat-inputbar,.mbh-chat-input-bar,.mbh-chat-footer,.mbh-chat-form,.mbh-atendimento-composer,.mbh-atendimento-footer,.mbh-central-chat-footer,[data-mbh-chat-composer]{padding-bottom:calc(var(--mbh-safe-bottom) + 8px)!important;bottom:0!important;}' +
-                        '.mbh-chat-modal,.mbh-atendimento-modal,.mbh-central-atendimento-modal{max-height:calc(100vh - var(--mbh-safe-top) - var(--mbh-safe-bottom))!important;}';
+                        '.mbh-chat-modal,.mbh-atendimento-modal,.mbh-central-atendimento-modal{max-height:calc(100vh - var(--mbh-safe-top) - var(--mbh-safe-bottom))!important;}' +
+                        '.mbh-app-version-native{display:block;text-align:center;color:#667085;font-size:12px;padding:12px 8px 18px;}';
                     if (!window.__mbhAndroidFocusFix) {
                         window.__mbhAndroidFocusFix = true;
                         document.addEventListener('focusin', function(ev){
@@ -433,6 +461,35 @@ class MainActivity : Activity() {
                                     try { el.scrollIntoView({block:'center', inline:'nearest', behavior:'smooth'}); } catch(e) { try { el.scrollIntoView(false); } catch(_){} }
                                 }, 320);
                             }
+                        }, true);
+                    }
+
+                    if (!window.__mbhAndroidVersionFooter) {
+                        window.__mbhAndroidVersionFooter = true;
+                        setTimeout(function(){
+                            try {
+                                var existing = document.getElementById('mbh-app-version-native');
+                                if (!existing && document.body) {
+                                    var footer = document.createElement('div');
+                                    footer.id = 'mbh-app-version-native';
+                                    footer.className = 'mbh-app-version-native';
+                                    footer.textContent = 'MaridoBH Profissional • App v${BuildConfig.VERSION_NAME}';
+                                    document.body.appendChild(footer);
+                                }
+                            } catch(e) {}
+                        }, 700);
+                    }
+                    if (!window.__mbhAndroidSyncHook) {
+                        window.__mbhAndroidSyncHook = true;
+                        document.addEventListener('click', function(ev){
+                            try {
+                                var el = ev.target && ev.target.closest ? ev.target.closest('button,a,[role="button"],input[type="button"],input[type="submit"]') : null;
+                                if (!el) return;
+                                var text = ((el.innerText || el.value || el.getAttribute('aria-label') || '') + '').toLowerCase();
+                                if (text.indexOf('sincron') >= 0 || text.indexOf('atualizar') >= 0) {
+                                    if (window.MaridoBHAndroid && window.MaridoBHAndroid.smartSync) window.MaridoBHAndroid.smartSync();
+                                }
+                            } catch(e) {}
                         }, true);
                     }
                 } catch(e) { console.log('MBH safe-area css error', e); }
@@ -469,6 +526,138 @@ class MainActivity : Activity() {
             })();
         """.trimIndent()
         webView.evaluateJavascript(js, null)
+    }
+
+
+    fun performSmartSyncFromBridge() {
+        runOnUiThread { performSmartSync(clearWebCache = true, showToast = true) }
+    }
+
+    private fun performSmartSync(clearWebCache: Boolean, showToast: Boolean) {
+        try {
+            if (clearWebCache) {
+                webView.clearCache(false)
+            }
+        } catch (_: Exception) {}
+        PushTokenManager.markTokenPending(this)
+        PushTokenManager.init(this)
+        MobileApiClient.syncDevice(this)
+        MobileApiClient.flushPending(this) { sent ->
+            runOnUiThread {
+                updateStatusPill()
+                injectMobileBridgeFlag()
+                if (showToast) Toast.makeText(this, "Sincronização concluída: $sent item(ns)", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun buildSplashOverlay(): FrameLayout {
+        val overlay = FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor("#0B4EDB"))
+            isClickable = true
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+        }
+        val logo = ImageView(this).apply {
+            tag = "splash_logo"
+            setImageResource(resources.getIdentifier("splash_logo", "drawable", packageName))
+            adjustViewBounds = true
+            alpha = 0f
+            scaleX = 0.94f
+            scaleY = 0.94f
+        }
+        box.addView(logo, LinearLayout.LayoutParams(dp(210), dp(210)))
+        box.addView(TextView(this).apply {
+            text = "MaridoBH Profissional"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            alpha = 0.86f
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(8)
+        })
+        box.addView(TextView(this).apply {
+            text = "App v${BuildConfig.VERSION_NAME}"
+            textSize = 12f
+            setTextColor(Color.WHITE)
+            alpha = 0.65f
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(6)
+        })
+        overlay.addView(box, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        return overlay
+    }
+
+    private fun hideSplashWhenReady() {
+        if (splashHidden) return
+        webView.evaluateJavascript("document.readyState") { state ->
+            if (state.contains("interactive") || state.contains("complete")) {
+                mainHandler.postDelayed({ hideSplash() }, 180)
+            } else {
+                mainHandler.postDelayed({ hideSplashWhenReady() }, 120)
+            }
+        }
+    }
+
+    private fun hideSplash(force: Boolean = false) {
+        if (splashHidden && !force) return
+        splashHidden = true
+        if (::webView.isInitialized) {
+            webView.animate().alpha(1f).setDuration(250).start()
+        }
+        if (::splashOverlay.isInitialized && splashOverlay.visibility == View.VISIBLE) {
+            splashOverlay.animate()
+                .alpha(0f)
+                .setDuration(if (force) 120 else 350)
+                .withEndAction { splashOverlay.visibility = View.GONE }
+                .start()
+        }
+    }
+
+    private fun isOnline(): Boolean {
+        return try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val network = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(network) ?: return false
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (_: Exception) { true }
+    }
+
+    private fun checkForAppUpdate() {
+        if (updatePromptShown) return
+        Thread {
+            try {
+                if (!isOnline()) return@Thread
+                val versionUrl = AppConfig.baseUrl + BuildConfig.APP_VERSION_ENDPOINT
+                val conn = (URL(versionUrl).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 3500
+                    readTimeout = 3500
+                    requestMethod = "GET"
+                }
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val json = org.json.JSONObject(body)
+                val remoteCode = json.optInt("versionCode", BuildConfig.VERSION_CODE)
+                val remoteName = json.optString("versionName", "")
+                val notes = json.optString("notes", "")
+                if (remoteCode > BuildConfig.VERSION_CODE) {
+                    runOnUiThread { showUpdateAvailable(remoteName, notes) }
+                }
+            } catch (_: Exception) {}
+        }.start()
+    }
+
+    private fun showUpdateAvailable(versionName: String, notes: String) {
+        if (updatePromptShown || isFinishing) return
+        updatePromptShown = true
+        AlertDialog.Builder(this)
+            .setTitle("Atualização disponível")
+            .setMessage("Existe uma nova versão do MaridoBH Profissional${if (versionName.isNotBlank()) " ($versionName)" else ""}.\n\n$notes")
+            .setPositiveButton("Atualizar") { _, _ -> openAppUpdatePage() }
+            .setNegativeButton("Agora não", null)
+            .show()
     }
 
     private fun requestNotificationPermissionIfNeeded() {
@@ -522,6 +711,10 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         MobileApiClient.flushPending(this)
+        if (isOnline() && ::errorView.isInitialized && errorView.visibility == View.VISIBLE) {
+            errorView.visibility = View.GONE
+            webView.reload()
+        }
         updateStatusPill()
     }
 
@@ -567,13 +760,7 @@ class MainActivity : Activity() {
             .setPositiveButton("OK", null)
             .setNegativeButton("ATUALIZAR LOCALIZAÇÃO") { _, _ ->
                 updateLocationNow()
-                MobileApiClient.flushPending(this) { sent ->
-                    runOnUiThread {
-                        Toast.makeText(this, "Sincronização enviada: $sent item(ns)", Toast.LENGTH_SHORT).show()
-                        updateStatusPill()
-                        injectMobileBridgeFlag()
-                    }
-                }
+                performSmartSync(clearWebCache = true, showToast = true)
             }
             .setNeutralButton("CONFIGURAÇÕES") { _, _ -> openAppSettings() }
             .show()
@@ -643,7 +830,8 @@ class MainActivity : Activity() {
                         'body.mbh-android-app{padding-bottom:calc(var(--mbh-safe-bottom) + 10px)!important;}' +
                         '.mbh-android-app input:focus,.mbh-android-app textarea:focus{scroll-margin-bottom:calc(var(--mbh-safe-bottom) + 150px)!important;}' +
                         '.mbh-chat-composer,.mbh-chat-inputbar,.mbh-chat-input-bar,.mbh-chat-footer,.mbh-chat-form,.mbh-atendimento-composer,.mbh-atendimento-footer,.mbh-central-chat-footer,[data-mbh-chat-composer]{padding-bottom:calc(var(--mbh-safe-bottom) + 8px)!important;bottom:0!important;}' +
-                        '.mbh-chat-modal,.mbh-atendimento-modal,.mbh-central-atendimento-modal{max-height:calc(100vh - var(--mbh-safe-top) - var(--mbh-safe-bottom))!important;}';
+                        '.mbh-chat-modal,.mbh-atendimento-modal,.mbh-central-atendimento-modal{max-height:calc(100vh - var(--mbh-safe-top) - var(--mbh-safe-bottom))!important;}' +
+                        '.mbh-app-version-native{display:block;text-align:center;color:#667085;font-size:12px;padding:12px 8px 18px;}';
                     if (!window.__mbhAndroidFocusFix) {
                         window.__mbhAndroidFocusFix = true;
                         document.addEventListener('focusin', function(ev){
@@ -655,6 +843,35 @@ class MainActivity : Activity() {
                                     try { el.scrollIntoView({block:'center', inline:'nearest', behavior:'smooth'}); } catch(e) { try { el.scrollIntoView(false); } catch(_){} }
                                 }, 320);
                             }
+                        }, true);
+                    }
+
+                    if (!window.__mbhAndroidVersionFooter) {
+                        window.__mbhAndroidVersionFooter = true;
+                        setTimeout(function(){
+                            try {
+                                var existing = document.getElementById('mbh-app-version-native');
+                                if (!existing && document.body) {
+                                    var footer = document.createElement('div');
+                                    footer.id = 'mbh-app-version-native';
+                                    footer.className = 'mbh-app-version-native';
+                                    footer.textContent = 'MaridoBH Profissional • App v${BuildConfig.VERSION_NAME}';
+                                    document.body.appendChild(footer);
+                                }
+                            } catch(e) {}
+                        }, 700);
+                    }
+                    if (!window.__mbhAndroidSyncHook) {
+                        window.__mbhAndroidSyncHook = true;
+                        document.addEventListener('click', function(ev){
+                            try {
+                                var el = ev.target && ev.target.closest ? ev.target.closest('button,a,[role="button"],input[type="button"],input[type="submit"]') : null;
+                                if (!el) return;
+                                var text = ((el.innerText || el.value || el.getAttribute('aria-label') || '') + '').toLowerCase();
+                                if (text.indexOf('sincron') >= 0 || text.indexOf('atualizar') >= 0) {
+                                    if (window.MaridoBHAndroid && window.MaridoBHAndroid.smartSync) window.MaridoBHAndroid.smartSync();
+                                }
+                            } catch(e) {}
                         }, true);
                     }
                 } catch(e) {}
