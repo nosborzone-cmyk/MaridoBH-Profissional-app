@@ -20,8 +20,8 @@ android {
         applicationId 'com.maridobh.profissional'
         minSdk 23
         targetSdk 35
-        versionCode 285
-        versionName '2.8.5'
+        versionCode 290
+        versionName '2.9.0'
 
         def serverUrl = project.findProperty('MBH_SERVER_URL') ?: 'https://maridobh.com.br'
         def professionalPath = project.findProperty('MBH_PROFESSIONAL_PATH') ?: '/painel-profissional/'

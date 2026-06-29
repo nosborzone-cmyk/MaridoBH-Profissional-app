@@ -76,12 +76,19 @@ class MainActivity : Activity() {
     private var pendingStartPreciseLocation = false
     private var safeTopPx = 0
     private var safeBottomPx = 0
+    private val autoSyncRunnable = object : Runnable {
+        override fun run() {
+            performAutoSync()
+            mainHandler.postDelayed(this, AUTO_SYNC_INTERVAL_MS)
+        }
+    }
 
     companion object {
         private const val REQ_FILE = 701
         private const val REQ_LOCATION = 702
         private const val REQ_NOTIFICATION = 703
         private const val REQ_PRECISE_LOCATION = 704
+        private const val AUTO_SYNC_INTERVAL_MS = 30000L
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -104,6 +111,7 @@ class MainActivity : Activity() {
         updateStatusPill()
         checkForAppUpdate()
         loadInitialUrl(intent)
+        startAutoSync()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -139,8 +147,8 @@ class MainActivity : Activity() {
             setOnClickListener { updateLocationNow() }
             setOnLongClickListener { showMobileDiagnostics(); true }
         }
-        // Card nativo de atualização manual da localização. Fica na parte inferior
-        // esquerda para não cobrir o menu hambúrguer nem botões do cabeçalho.
+        // Indicador nativo mantido apenas para diagnósticos internos.
+        // Não exibimos mais botão de sincronização/localização na interface normal.
         val pillParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply {
             leftMargin = dp(14)
             bottomMargin = dp(18)
@@ -225,6 +233,7 @@ class MainActivity : Activity() {
                 progress.visibility = View.GONE
                 injectMobileBridgeFlag()
                 updateStatusPill()
+                performAutoSync()
                 hideSplashWhenReady()
             }
 
@@ -530,6 +539,25 @@ class MainActivity : Activity() {
     }
 
 
+    private fun startAutoSync() {
+        mainHandler.removeCallbacks(autoSyncRunnable)
+        mainHandler.postDelayed(autoSyncRunnable, 2500L)
+    }
+
+    private fun stopAutoSync() {
+        mainHandler.removeCallbacks(autoSyncRunnable)
+    }
+
+    private fun performAutoSync() {
+        if (!::webView.isInitialized) return
+        try {
+            if (PreciseLocationManager.hasPermission(this)) {
+                PreciseLocationManager.start(this)
+            }
+        } catch (_: Exception) {}
+        performSmartSync(clearWebCache = false, showToast = false)
+    }
+
     fun performSmartSyncFromBridge() {
         runOnUiThread { performSmartSync(clearWebCache = true, showToast = true) }
     }
@@ -627,11 +655,11 @@ class MainActivity : Activity() {
     }
 
     private fun revealStatusPillAfterSplash() {
+        // UX 2.9.0: a sincronização fica automática e silenciosa.
+        // O antigo balão/botão de "Atualizar localização" não aparece mais.
         if (!::statusPill.isInitialized) return
-        updateStatusPill()
-        statusPill.visibility = View.VISIBLE
-        statusPill.alpha = 0f
-        statusPill.animate().alpha(0.97f).setDuration(220).start()
+        statusPill.animate().cancel()
+        statusPill.visibility = View.GONE
     }
 
     private fun isOnline(): Boolean {
@@ -741,12 +769,18 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        MobileApiClient.flushPending(this)
+        startAutoSync()
+        performAutoSync()
         if (isOnline() && ::errorView.isInitialized && errorView.visibility == View.VISIBLE) {
             errorView.visibility = View.GONE
             webView.reload()
         }
         updateStatusPill()
+    }
+
+    override fun onPause() {
+        stopAutoSync()
+        super.onPause()
     }
 
     override fun onBackPressed() {
@@ -755,26 +789,10 @@ class MainActivity : Activity() {
 
     private fun updateStatusPill() {
         if (!::statusPill.isInitialized) return
-        val keepHiddenUntilSplashEnds = ::splashOverlay.isInitialized && splashOverlay.visibility == View.VISIBLE && !splashHidden
-        if (keepHiddenUntilSplashEnds) {
-            statusPill.visibility = View.GONE
-        }
-        val precise = PreciseLocationManager.isActive(this)
-        val pending = OfflineQueueManager.pendingCount(this)
-        val overall = AppDiagnostics.diagnosticsJson(this).optString("overall", "ok")
-        statusPill.text = when {
-            overall == "critical" -> "⚠️  Verificar aplicativo\nToque para tentar sincronizar"
-            pending > 0 -> "🔄  Atualizar localização\n$pending pendência(s) offline"
-            precise -> "📍  Atualizar localização\nGPS preciso ativo • toque para sincronizar"
-            else -> "🎯  Atualizar localização\nSincronize sua posição para serviços próximos"
-        }
-        val color = when {
-            overall == "critical" -> "#DC2626"
-            pending > 0 -> "#F59E0B"
-            precise -> "#0B84FF"
-            else -> "#0B4EDB"
-        }
-        applyRoundedPillBackground(statusPill, color)
+        // UX 2.9.0: nada de botão flutuante de sincronização.
+        // Localização, push, pendências e dados do app sincronizam automaticamente.
+        statusPill.animate().cancel()
+        statusPill.visibility = View.GONE
     }
 
     private fun applyRoundedPillBackground(view: TextView, color: String) {

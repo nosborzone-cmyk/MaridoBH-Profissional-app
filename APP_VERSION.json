@@ -1,6 +1,6 @@
 {
-  "versionName": "2.8.4",
-  "versionCode": 284,
+  "versionName": "2.9.0",
+  "versionCode": 290,
   "channel": "debug",
-  "notes": "Splash com fade, ícone adaptativo com área segura, carregamento sem piscada, sincronização inteligente, tela offline e aviso de atualização."
+  "notes": "UX refinada: botão de sincronização removido, sincronização automática silenciosa, localização atualizada com app aberto e avisos técnicos ocultos."
 }

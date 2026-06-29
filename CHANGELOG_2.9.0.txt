@@ -1,0 +1,8 @@
+MaridoBH Profissional 2.9.0
+
+- Remove o botão flutuante de sincronização/localização da interface.
+- Mantém sincronização automática e silenciosa enquanto o app está aberto.
+- Atualiza localização automaticamente quando há permissão.
+- Sincroniza pendências offline, token push e dados do dispositivo sem intervenção manual.
+- Mantém aviso de erro apenas nas telas de falha/conexão, sem balões técnicos permanentes.
+- Prepara a interface para futuro modo Disponível/Indisponível.
