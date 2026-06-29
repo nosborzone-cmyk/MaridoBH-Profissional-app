@@ -128,6 +128,7 @@ class MainActivity : Activity() {
         root.addView(progress, FrameLayout.LayoutParams(-1, dp(4), Gravity.TOP))
 
         statusPill = TextView(this).apply {
+            visibility = View.GONE
             textSize = 13f
             setTextColor(Color.WHITE)
             setPadding(dp(14), dp(10), dp(16), dp(10))
@@ -615,9 +616,22 @@ class MainActivity : Activity() {
             splashOverlay.animate()
                 .alpha(0f)
                 .setDuration(if (force) 120 else 350)
-                .withEndAction { splashOverlay.visibility = View.GONE }
+                .withEndAction {
+                    splashOverlay.visibility = View.GONE
+                    revealStatusPillAfterSplash()
+                }
                 .start()
+        } else {
+            revealStatusPillAfterSplash()
         }
+    }
+
+    private fun revealStatusPillAfterSplash() {
+        if (!::statusPill.isInitialized) return
+        updateStatusPill()
+        statusPill.visibility = View.VISIBLE
+        statusPill.alpha = 0f
+        statusPill.animate().alpha(0.97f).setDuration(220).start()
     }
 
     private fun isOnline(): Boolean {
@@ -740,6 +754,11 @@ class MainActivity : Activity() {
     }
 
     private fun updateStatusPill() {
+        if (!::statusPill.isInitialized) return
+        val keepHiddenUntilSplashEnds = ::splashOverlay.isInitialized && splashOverlay.visibility == View.VISIBLE && !splashHidden
+        if (keepHiddenUntilSplashEnds) {
+            statusPill.visibility = View.GONE
+        }
         val precise = PreciseLocationManager.isActive(this)
         val pending = OfflineQueueManager.pendingCount(this)
         val overall = AppDiagnostics.diagnosticsJson(this).optString("overall", "ok")

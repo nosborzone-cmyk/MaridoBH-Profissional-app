@@ -1,6 +1,6 @@
 {
-  "versionName": "2.8.2",
-  "versionCode": 110,
+  "versionName": "2.8.4",
+  "versionCode": 284,
   "channel": "debug",
   "notes": "Splash com fade, ícone adaptativo com área segura, carregamento sem piscada, sincronização inteligente, tela offline e aviso de atualização."
 }

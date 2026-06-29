@@ -1,0 +1,10 @@
+MaridoBH Profissional Android 2.8.4
+
+Correção aplicada:
+- Corrigido clique em notificações de resposta de chamado/suporte.
+- O app agora identifica notificações com texto como "Resposta no chamado #3" e abre uma rota segura dentro do painel do profissional.
+- Links internos de suporte/chamado/ticket vindos do WordPress são normalizados para evitar Page not found (404).
+- Se a notificação vier com link incompleto, wp-admin, admin-ajax ou rota inválida, o app abre o painel do profissional em vez de exibir 404.
+
+Observação:
+- Se você quiser abrir exatamente a tela do chamado no plugin, o WordPress precisa reconhecer os parâmetros: mbh_aba=suporte, mbh_chamado ou chamado_id dentro do painel-profissional.
